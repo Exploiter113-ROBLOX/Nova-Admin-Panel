@@ -1,76 +1,55 @@
 local URL = "https://raw.githubusercontent.com/Exploiter113-ROBLOX/Nova-Admin-Panel/cc7b7566b7025a084743bae981a83583c37ee2f9/Nova%20Admin%20Panel.Lua"
+local FALLBACK_URL = "https://raw.githubusercontent.com/Exploiter113-ROBLOX/Nova-Admin-Panel/main/Nova%20Admin%20Panel.Lua"
 
-local function getRequest()
-    if type(game.HttpGet) == "function" then
-        return function()
-            return game:HttpGet(URL)
-        end
+-- Try every known download method (Delta supports game:HttpGet)
+local function tryDownload(url)
+    -- 1) game:HttpGet (works in Delta even though type() lies)
+    local ok, res = pcall(function() return game:HttpGet(url) end)
+    if ok and type(res) == "string" and #res > 0 and not res:find("^<") then
+        return res
     end
 
+    -- 2) request
     if type(request) == "function" then
-        return function()
-            local r = request({
-                Url = URL,
-                Method = "GET"
-            })
-            return r.Body
-        end
+        ok, res = pcall(function() return request({ Url = url, Method = "GET" }).Body end)
+        if ok and type(res) == "string" and #res > 0 then return res end
     end
 
+    -- 3) http_request
     if type(http_request) == "function" then
-        return function()
-            local r = http_request({
-                Url = URL,
-                Method = "GET"
-            })
-            return r.Body
-        end
+        ok, res = pcall(function() return http_request({ Url = url, Method = "GET" }).Body end)
+        if ok and type(res) == "string" and #res > 0 then return res end
+    end
+
+    -- 4) syn.request
+    if type(syn) == "table" and type(syn.request) == "function" then
+        ok, res = pcall(function() return syn.request({ Url = url, Method = "GET" }).Body end)
+        if ok and type(res) == "string" and #res > 0 then return res end
     end
 
     return nil
 end
 
-local function getCompiler()
-    if type(loadstring) == "function" then
-        return loadstring
-    end
+local source = tryDownload(URL) or tryDownload(FALLBACK_URL)
 
-    if type(load) == "function" then
-        return load
-    end
-
-    return nil
-end
-
-local httpGet = getRequest()
-local compiler = getCompiler()
-
-if not httpGet then
-    warn("[NOVA] HTTP request function unavailable.")
+if not source then
+    warn("[NOVA] Failed to download Nova Admin Panel from both URLs.")
     return
 end
 
-if not compiler then
-    warn("[NOVA] Lua compiler unavailable.")
+local compiler = loadstring or load
+if type(compiler) ~= "function" then
+    warn("[NOVA] No Lua compiler available in this executor.")
     return
 end
 
-local okDownload, source = pcall(httpGet)
-
-if not okDownload or type(source) ~= "string" or #source == 0 then
-    warn("[NOVA] Failed to download Nova Admin Panel.")
+local fn, compileErr = compiler(source, "=NovaAdminPanel")
+if not fn then
+    warn("[NOVA] Compile error: " .. tostring(compileErr))
     return
 end
 
-local okCompile, fn, compileError = pcall(compiler, source)
-
-if not okCompile or type(fn) ~= "function" then
-    warn("[NOVA] Compile error: " .. tostring(compileError or fn))
-    return
-end
-
-local okRun, runError = pcall(fn)
-
-if not okRun then
-    warn("[NOVA] Runtime error: " .. tostring(runError))
+local ok, runErr = pcall(fn)
+if not ok then
+    warn("[NOVA] Runtime error: " .. tostring(runErr))
 end
